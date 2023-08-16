@@ -1,49 +1,50 @@
-use axohtml::{dom::DOMTree, elements::tr, html, text};
-use axum::{response::Html, routing::get, Router};
+use std::sync::Arc;
 
-struct Todo {
-    id: u32,
-    title: String,
-    done: bool,
+use axum::{extract::State, response::Html, routing::*, Router};
+use html_node::{
+    text,
+    typed::{self, elements::*},
+    Node,
+};
+
+#[derive(Debug)]
+pub struct Todo {
+    pub id: u32,
+    pub title: String,
+    pub done: bool,
 }
 
-pub fn todos_router() -> Router {
-    Router::new().route("/", get(get_todos))
+pub fn todos_router() -> Router<Arc<Vec<Todo>>> {
+    Router::new().route("/", get(get_todos).post(add_todo))
 }
 
-async fn get_todos() -> Html<String> {
-    let todos = vec![
-        Todo {
-            id: 0,
-            title: "Test title".to_string(),
-            done: false,
-        },
-        Todo {
-            id: 1,
-            title: "Maybe tit".to_string(),
-            done: false,
-        },
-        Todo {
-            id: 2,
-            title: "To be done".to_string(),
-            done: true,
-        },
-    ];
+async fn add_todo(todos: State<Arc<Vec<Todo>>>) {
+    dbg!(todos);
+}
 
+async fn get_todos(todos: State<Arc<Vec<Todo>>>) -> Html<String> {
     todos_table(&todos).to_string().into()
 }
 
-fn single_todo_row(todo: &Todo) -> Box<tr<String>> {
-    html!(
+fn single_todo_row(todo: &Todo) -> Node {
+    typed::html!((hx)
         <tr>
-            <td>{ text!("{}", todo.title)}</td>
-            <td><input class="checkbox" checked=todo.done hx-vals={format!("\"id\": {}", todo.id)} /></td>
+            <td>{text!("{}", todo.title)}</td>
+            <td>
+                <input
+                    class="checkbox"
+                    type="checkbox"
+                    checked=format!("{:?}", todo.done)
+                    hx-post="/todo"
+                    hx-vals={format!("\"id\": {}", todo.id)}
+                />
+            </td>
         </tr>
     )
 }
 
-fn todos_table(todos: &Vec<Todo>) -> DOMTree<String> {
-    html!(
+fn todos_table(todos: &Vec<Todo>) -> Node {
+    typed::html!((hx)
         <table>
             <thead>
                 <tr>
