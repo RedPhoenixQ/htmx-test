@@ -1,6 +1,4 @@
-use std::sync::Arc;
-
-use axum::{response::Html, routing::*, Router};
+use axum::{async_trait, extract::FromRequestParts, response::Html, routing::*, Router};
 use html_node::typed::{self, elements::*};
 
 mod routes;
@@ -14,24 +12,7 @@ async fn main() {
     let app = Router::new()
         .route("/", get(home::get))
         .route("/test", get(test_function))
-        .nest("/todo", todos::todos_router())
-        .with_state(Arc::new(vec![
-            todos::Todo {
-                id: 0,
-                title: "Test title".to_string(),
-                done: false,
-            },
-            todos::Todo {
-                id: 1,
-                title: "Maybe tit".to_string(),
-                done: false,
-            },
-            todos::Todo {
-                id: 2,
-                title: "To be done".to_string(),
-                done: true,
-            },
-        ]));
+        .nest("/todo", todos::todos_router());
 
     axum::Server::bind(&"0.0.0.0:42069".parse().unwrap())
         .serve(app.into_make_service())
@@ -39,7 +20,7 @@ async fn main() {
         .unwrap();
 }
 
-async fn test_function() -> Html<String> {
+async fn test_function(htmx: Htmx) -> Html<String> {
     let div = typed::html! { (hx)
         <div class="p-2" hx-swap="outerHtml" >
             <h1>Title Heading</h1>
@@ -47,4 +28,21 @@ async fn test_function() -> Html<String> {
         </div>
     };
     div.to_string().into()
+}
+
+#[derive(Debug)]
+struct Htmx(bool);
+
+#[async_trait]
+impl<S> FromRequestParts<S> for Htmx
+where
+    S: Send + Sync,
+{
+    type Rejection = std::convert::Infallible;
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        _state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        Ok(Htmx(parts.headers.contains_key("HX-Request")))
+    }
 }
