@@ -1,8 +1,8 @@
-use axum::{async_trait, extract::FromRequestParts, response::Html, routing::*, Router};
-use html_node::typed::{self, elements::*};
-
+use axum::{async_trait, extract::FromRequestParts, routing::*, Router};
+mod layout;
 mod routes;
 
+use layout::layout;
 use routes::*;
 
 #[tokio::main]
@@ -11,23 +11,12 @@ async fn main() {
 
     let app = Router::new()
         .route("/", get(home::get))
-        .route("/test", get(test_function))
-        .nest("/todo", todos::todos_router());
+        .merge(todos::todos_router());
 
     axum::Server::bind(&"0.0.0.0:42069".parse().unwrap())
         .serve(app.into_make_service())
         .await
         .unwrap();
-}
-
-async fn test_function(htmx: Htmx) -> Html<String> {
-    let div = typed::html! { (hx)
-        <div class="p-2" hx-swap="outerHtml" >
-            <h1>Title Heading</h1>
-            <p>This is a parameter</p>
-        </div>
-    };
-    div.to_string().into()
 }
 
 #[derive(Debug)]

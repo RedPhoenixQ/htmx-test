@@ -1,8 +1,16 @@
 use std::collections::HashMap;
 
 use axum::extract::Query;
+use html_node::{
+    typed::{elements::*, html},
+    Node,
+};
 
-pub async fn get(Query(params): Query<HashMap<String, String>>) -> String {
+use crate::layout;
+
+pub async fn get(Query(params): Query<HashMap<String, String>>) -> Node {
     dbg!(params);
-    String::from("<div> lol as das d</div>")
+    layout(html!((hx)
+        <div>"lol as das d"</div>
+    ))
 }
