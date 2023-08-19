@@ -136,7 +136,7 @@ fn todo_form() -> Node {
         <form id="todo-form"
             hx-post="/todo"
             hx-target="next table tbody"
-            hx-swap="afterbegin"
+            hx-swap="beforeend"
             hx-on="htmx:afterRequest: if (!event?.detail?.failed) this.reset()"
         >
             <label>
@@ -154,9 +154,6 @@ fn single_todo_row(todo: &Todo) -> Node {
             type="checkbox"
             name="checked"
             hx-patch="/todo"
-            hx-swap="outerHTML"
-            hx-target="closest tr"
-            hx-vals={format!("\"id\": {}", todo.id)}
         />
     );
 
@@ -171,12 +168,14 @@ fn single_todo_row(todo: &Todo) -> Node {
     }
 
     html!((hx)
-        <tr>
+        <tr
+            hx-swap="outerHTML"
+            hx-target="closest tr"
+            hx-vals={format!("\"id\": {}", todo.id)}
+        >
             <td>{text!("{}", todo.title)}</td>
             <td>{checkbox}</td>
-            <td>
-                <button hx-delete="/todo" hx-target="closest tr" hx-swap="outerHTML" hx-vals={format!("\"id\": {}", todo.id)}>X</button>
-            </td>
+            <td><button hx-delete="/todo">X</button></td>
         </tr>
     )
 }
