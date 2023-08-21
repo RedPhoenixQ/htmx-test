@@ -8,5 +8,7 @@ edition = "2021"
 [dependencies]
 axum = { version = "0.6.20", features = ["form"] }
 html-node = { version = "0.2.1", features = ["axum", "typed"] }
+include_dir = "0.7.3"
+mime_guess = "2.0.4"
 serde = { version = "1.0.183", features = ["derive"] }
 tokio = { version = "1.31.0", features = ["macros", "rt-multi-thread"] }
