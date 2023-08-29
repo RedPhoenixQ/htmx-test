@@ -118,30 +118,29 @@ async fn get_todos(htmx: Htmx, State(todos): State<Todos>) -> Node {
     let form = todo_form();
 
     let node = html!((hx)
-        <div>
+        <div class="m-auto w-64">
             {form}
             {table}
         </div>
     );
 
-    if htmx.0 {
-        node
-    } else {
+    if htmx.fullpage {
         layout(node)
+    } else {
+        node
     }
 }
 
 fn todo_form() -> Node {
     html!((hx)
         <form id="todo-form"
+            class="flex"
             hx-post="/todo"
             hx-target="next table tbody"
             hx-swap="beforeend"
             hx-on="htmx:afterRequest: if (!event?.detail?.failed) this.reset()"
         >
-            <label>
-                <input type="text" name="title" />
-            </label>
+            <input class="flex-1" type="text" name="title" />
             <button>Add</button>
         </form>
     )
