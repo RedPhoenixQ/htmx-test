@@ -104,7 +104,7 @@ async fn create_todo(Form(form): Form<TodoForm>) -> Result<Node, AppError> {
         .await?;
 
     Ok(todo.into())
-}1
+}
 
 async fn check_todo(Form(form): Form<Check>) -> Result<Node, AppError> {
     let todo: Todo = DB
@@ -115,7 +115,7 @@ async fn check_todo(Form(form): Form<Check>) -> Result<Node, AppError> {
         .await?;
 
     dbg!(&todo);
-    
+
     Ok(todo.into())
 }
 
