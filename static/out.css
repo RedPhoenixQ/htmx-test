@@ -558,6 +558,14 @@ video {
   width: 16rem;
 }
 
+.w-full {
+  width: 100%;
+}
+
 .flex-1 {
   flex: 1 1 0%;
+}
+
+.text-center {
+  text-align: center;
 }

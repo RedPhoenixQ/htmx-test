@@ -1,9 +1,10 @@
+use anyhow::Result;
 use axum::{
     async_trait,
     body::{self, Empty, Full},
     extract::{FromRequestParts, Path},
-    http::{header, HeaderValue, Response, StatusCode},
-    response::IntoResponse,
+    http::{header, HeaderValue, StatusCode},
+    response::{IntoResponse, Response},
     routing::*,
     Router,
 };
@@ -13,22 +14,46 @@ mod routes;
 use include_dir::{include_dir, Dir};
 use layout::layout;
 use routes::*;
+use surrealdb::{
+    self,
+    engine::remote::ws::{Client, Ws},
+    opt::auth::Root,
+    Surreal,
+};
 
 static STATIC_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/static");
 
+static DB: Surreal<Client> = Surreal::init();
+
+async fn init_db() -> Result<()> {
+    println!("connecting to db...");
+    DB.connect::<Ws>("127.0.0.1:8000").await?;
+    DB.signin(Root {
+        username: "root",
+        password: "root",
+    })
+    .await?;
+    println!("Connection established {:?}", DB.health());
+    DB.use_ns("todo").use_db("todo").await?;
+    println!("ns and db in use");
+    Ok(())
+}
+
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<()> {
+    init_db().await?;
     println!("Hello, world!");
 
     let app = Router::new()
         .route("/static/*path", get(static_path))
         .route("/", get(home::get))
-        .merge(todos::todos_router());
+        .nest("/todo", todos::todos_router());
 
-    axum::Server::bind(&"0.0.0.0:42069".parse().unwrap())
-        .serve(app.into_make_service())
-        .await
-        .unwrap();
+    let server = axum::Server::bind(&"0.0.0.0:8080".parse()?).serve(app.into_make_service());
+
+    server.await?;
+
+    Ok(())
 }
 
 async fn static_path(Path(path): Path<String>) -> impl IntoResponse {
@@ -48,6 +73,28 @@ async fn static_path(Path(path): Path<String>) -> impl IntoResponse {
             )
             .body(body::boxed(Full::from(file.contents())))
             .unwrap(),
+    }
+}
+
+struct AppError(anyhow::Error);
+
+impl<E> From<E> for AppError
+where
+    E: Into<anyhow::Error>,
+{
+    fn from(err: E) -> Self {
+        Self(err.into())
+    }
+}
+
+impl IntoResponse for AppError {
+    fn into_response(self) -> Response {
+        eprintln!("{}", self.0.to_string());
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Something went wrong: {}", self.0),
+        )
+            .into_response()
     }
 }
 

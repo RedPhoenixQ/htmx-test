@@ -1,29 +1,66 @@
-use std::sync::{Arc, Mutex};
-
-use axum::{extract::State, routing::*, Form, Router};
+use axum::{routing::*, Form, Router};
 use html_node::{
     text,
     typed::{elements::*, html},
     Node,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use surrealdb::sql::Thing;
 
-use crate::{layout, Htmx};
+use crate::{layout, AppError, Htmx, DB};
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Todo {
-    pub id: u32,
+    pub id: Thing,
     pub title: String,
     pub done: bool,
 }
 
-#[derive(Debug, Clone)]
-pub struct Todos(Arc<Mutex<Vec<Todo>>>);
+impl Into<Node> for &Todo {
+    fn into(self) -> Node {
+        let mut checkbox = html!((hx)
+            <input
+                class="checkbox"
+                type="checkbox"
+                name="checked"
+                hx-patch="/todo"
+            />
+        );
 
-impl Todos {
-    fn new(todos: Vec<Todo>) -> Self {
-        Self(Arc::new(Mutex::new(todos)))
+        if self.done {
+            checkbox = if let Node::Element(mut el) = checkbox {
+                el.attributes
+                    .push(("checked".to_string(), Some(String::from("true"))));
+                Node::Element(el)
+            } else {
+                checkbox
+            };
+        }
+
+        html!((hx)
+            <tr
+                hx-swap="outerHTML"
+                hx-target="closest tr"
+                hx-vals={format!("\"id\": \"{}\"", self.id.id)}
+            >
+                <td>{text!("{}", self.title)}</td>
+                <td>{checkbox}</td>
+                <td><button hx-delete="/todo">X</button></td>
+            </tr>
+        )
     }
+}
+
+impl Into<Node> for Todo {
+    fn into(self) -> Node {
+        (&self).into()
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct NewTodo {
+    title: String,
+    done: bool,
 }
 
 #[derive(Deserialize)]
@@ -33,164 +70,89 @@ struct TodoForm {
 
 #[derive(Debug, Deserialize)]
 struct Id {
-    id: u32,
+    id: String,
 }
 
 #[derive(Debug, Deserialize)]
 struct Check {
-    id: u32,
+    id: String,
     checked: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+struct Done {
+    done: bool,
+}
+
 pub fn todos_router() -> Router {
-    let todos = vec![
-        Todo {
-            id: 0,
-            title: "Test title".to_string(),
+    Router::new().route(
+        "/",
+        get(get_todos)
+            .delete(remove_todo)
+            .post(create_todo)
+            .patch(check_todo),
+    )
+}
+
+async fn create_todo(Form(form): Form<TodoForm>) -> Result<Node, AppError> {
+    let todo: Todo = DB
+        .create("todo")
+        .content(NewTodo {
+            title: form.title,
             done: false,
-        },
-        Todo {
-            id: 1,
-            title: "Maybe tit".to_string(),
-            done: false,
-        },
-        Todo {
-            id: 2,
-            title: "To be done".to_string(),
-            done: true,
-        },
-    ];
-    Router::new()
-        .route(
-            "/todo",
-            get(get_todos)
-                .delete(remove_todo)
-                .post(add_todo)
-                .patch(check_todo),
-        )
-        .route("/todo/form", get(|| async { todo_form() }))
-        .with_state(Todos::new(todos))
+        })
+        .await?;
+
+    Ok(todo.into())
+}1
+
+async fn check_todo(Form(form): Form<Check>) -> Result<Node, AppError> {
+    let todo: Todo = DB
+        .update(("todo", form.id))
+        .merge(Done {
+            done: form.checked.is_some(),
+        })
+        .await?;
+
+    dbg!(&todo);
+    
+    Ok(todo.into())
 }
 
-async fn add_todo(State(todos): State<Todos>, Form(form): Form<TodoForm>) -> Node {
-    dbg!("Is htmx request");
-    dbg!(&todos);
-
-    let mut todos_locked = todos.0.lock().unwrap();
-    let id = todos_locked.iter().map(|t| t.id).max().unwrap_or(0) + 1;
-    let todo = Todo {
-        id,
-        title: form.title,
-        done: false,
-    };
-    let row = single_todo_row(&todo);
-
-    todos_locked.push(todo);
-    row
+async fn remove_todo(Form(id): Form<Id>) -> Result<(), AppError> {
+    let _todo: Option<Todo> = DB.delete(("todo", id.id)).await?;
+    Ok(())
 }
 
-async fn check_todo(
-    State(todos): State<Todos>,
-    htmx: Htmx,
-    Form(form): Form<Check>,
-) -> Result<Node, ()> {
-    dbg!("Is htmx request", htmx, &form);
-    if let Some(todo) = todos.0.lock().unwrap().iter_mut().find(|t| t.id == form.id) {
-        todo.done = form.checked.is_some();
-        Ok(single_todo_row(&todo))
-    } else {
-        Err(())
-    }
-}
-
-async fn remove_todo(State(todos): State<Todos>, htmx: Htmx, Form(id): Form<Id>) {
-    dbg!("Is htmx request", htmx, &id);
-    let mut locked_todos = todos.0.lock().unwrap();
-    if let Some((i, _)) = locked_todos.iter().enumerate().find(|(_, t)| t.id == id.id) {
-        locked_todos.remove(i);
-    }
-    dbg!(&locked_todos);
-}
-
-async fn get_todos(htmx: Htmx, State(todos): State<Todos>) -> Node {
+async fn get_todos(htmx: Htmx) -> Result<Node, AppError> {
     dbg!("Is htmx request", &htmx);
-    let table = todos_table(todos.0.lock().unwrap().iter());
-    let form = todo_form();
+    let todos: Vec<Todo> = DB.select("todo").await?;
 
     let node = html!((hx)
-        <div class="m-auto w-64">
-            {form}
-            {table}
+        <div class="m-auto w-64 table-wrapper">
+            <form id="todo-form"
+                class="flex"
+                hx-post="/todo"
+                hx-target="next table tbody"
+                hx-swap="beforeend"
+                hx-on="htmx:afterRequest: if (!event?.detail?.failed) this.reset()"
+            >
+                <input class="flex-1" type="text" name="title" />
+                <button>Add</button>
+            </form>
+            <table class="w-full [&_td,&_th]:w-full text-center">
+                <thead>
+                    <tr>
+                        <th>Title</th>
+                        <th>Done</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {todos.into_iter().map(|todo| -> Node {todo.into()})}
+                </tbody>
+            </table>
         </div>
     );
 
-    if htmx.fullpage {
-        layout(node)
-    } else {
-        node
-    }
-}
-
-fn todo_form() -> Node {
-    html!((hx)
-        <form id="todo-form"
-            class="flex"
-            hx-post="/todo"
-            hx-target="next table tbody"
-            hx-swap="beforeend"
-            hx-on="htmx:afterRequest: if (!event?.detail?.failed) this.reset()"
-        >
-            <input class="flex-1" type="text" name="title" />
-            <button>Add</button>
-        </form>
-    )
-}
-
-fn single_todo_row(todo: &Todo) -> Node {
-    let mut checkbox = html!((hx)
-        <input
-            class="checkbox"
-            type="checkbox"
-            name="checked"
-            hx-patch="/todo"
-        />
-    );
-
-    if todo.done {
-        checkbox = if let Node::Element(mut el) = checkbox {
-            el.attributes
-                .push(("checked".to_string(), Some(String::from("true"))));
-            Node::Element(el)
-        } else {
-            checkbox
-        };
-    }
-
-    html!((hx)
-        <tr
-            hx-swap="outerHTML"
-            hx-target="closest tr"
-            hx-vals={format!("\"id\": {}", todo.id)}
-        >
-            <td>{text!("{}", todo.title)}</td>
-            <td>{checkbox}</td>
-            <td><button hx-delete="/todo">X</button></td>
-        </tr>
-    )
-}
-
-fn todos_table<'a>(todos: impl Iterator<Item = &'a Todo>) -> Node {
-    html!((hx)
-        <table>
-            <thead>
-                <tr>
-                    <th>"Title"</th>
-                    <th>"Done"</th>
-                </tr>
-            </thead>
-            <tbody>
-                {todos.map(|todo| single_todo_row(&todo))}
-            </tbody>
-        </table>
-    )
+    Ok(if htmx.fullpage { layout(node) } else { node })
 }
