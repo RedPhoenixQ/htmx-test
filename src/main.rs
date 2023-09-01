@@ -36,6 +36,9 @@ async fn init_db() -> Result<()> {
     println!("Connection established {:?}", DB.health());
     DB.use_ns("todo").use_db("todo").await?;
     println!("ns and db in use");
+
+    DB.query(todos::TABLE_INIT).await?;
+
     Ok(())
 }
 
@@ -101,6 +104,7 @@ impl IntoResponse for AppError {
 #[derive(Debug)]
 struct Htmx {
     fullpage: bool,
+    target: Option<String>,
 }
 
 #[async_trait]
@@ -116,6 +120,10 @@ where
         Ok(Htmx {
             fullpage: !parts.headers.contains_key("HX-Request")
                 || parts.headers.contains_key("HX-Boosted"),
+            target: parts
+                .headers
+                .get("HX-Target")
+                .and_then(|v| v.to_str().ok().and_then(|s| Some(s.to_string()))),
         })
     }
 }

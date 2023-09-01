@@ -569,3 +569,8 @@ video {
 .text-center {
   text-align: center;
 }
+
+.\[\&\:has\(input\:checked\)\]\:bg-green-500:has(input:checked) {
+  --tw-bg-opacity: 1;
+  background-color: rgb(34 197 94 / var(--tw-bg-opacity));
+}

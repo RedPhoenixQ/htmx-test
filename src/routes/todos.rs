@@ -1,3 +1,6 @@
+use std::collections::BTreeMap;
+
+use anyhow::anyhow;
 use axum::{routing::*, Form, Router};
 use html_node::{
     text,
@@ -5,9 +8,15 @@ use html_node::{
     Node,
 };
 use serde::{Deserialize, Serialize};
-use surrealdb::sql::Thing;
+use surrealdb::sql::{Thing, Value};
 
 use crate::{layout, AppError, Htmx, DB};
+
+pub const TABLE_INIT: &str = "
+    DEFINE TABLE todo SCHEMAFULL;
+    DEFINE FIELD title ON TABLE todo TYPE string;
+    DEFINE FIELD done ON TABLE todo TYPE bool;    
+";
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Todo {
@@ -39,9 +48,10 @@ impl Into<Node> for &Todo {
 
         html!((hx)
             <tr
+                class="[&:has(input:checked)]:bg-green-500"
+                id=self.id.id.to_string()
                 hx-swap="outerHTML"
                 hx-target="closest tr"
-                hx-vals={format!("\"id\": \"{}\"", self.id.id)}
             >
                 <td>{text!("{}", self.title)}</td>
                 <td>{checkbox}</td>
@@ -57,31 +67,14 @@ impl Into<Node> for Todo {
     }
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-struct NewTodo {
-    title: String,
-    done: bool,
-}
-
 #[derive(Deserialize)]
 struct TodoForm {
     title: String,
 }
 
 #[derive(Debug, Deserialize)]
-struct Id {
-    id: String,
-}
-
-#[derive(Debug, Deserialize)]
 struct Check {
-    id: String,
     checked: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-struct Done {
-    done: bool,
 }
 
 pub fn todos_router() -> Router {
@@ -97,21 +90,21 @@ pub fn todos_router() -> Router {
 async fn create_todo(Form(form): Form<TodoForm>) -> Result<Node, AppError> {
     let todo: Todo = DB
         .create("todo")
-        .content(NewTodo {
-            title: form.title,
-            done: false,
-        })
+        .content(BTreeMap::<&str, Value>::from([
+            ("title", form.title.into()),
+            ("done", false.into()),
+        ]))
         .await?;
-
     Ok(todo.into())
 }
 
-async fn check_todo(Form(form): Form<Check>) -> Result<Node, AppError> {
+async fn check_todo(htmx: Htmx, Form(form): Form<Check>) -> Result<Node, AppError> {
     let todo: Todo = DB
-        .update(("todo", form.id))
-        .merge(Done {
-            done: form.checked.is_some(),
-        })
+        .update((
+            "todo",
+            htmx.target.ok_or(anyhow!("no target for todo check"))?,
+        ))
+        .merge(BTreeMap::from([("done", form.checked.is_some())]))
         .await?;
 
     dbg!(&todo);
@@ -119,8 +112,9 @@ async fn check_todo(Form(form): Form<Check>) -> Result<Node, AppError> {
     Ok(todo.into())
 }
 
-async fn remove_todo(Form(id): Form<Id>) -> Result<(), AppError> {
-    let _todo: Option<Todo> = DB.delete(("todo", id.id)).await?;
+async fn remove_todo(htmx: Htmx) -> Result<(), AppError> {
+    let id = htmx.target.ok_or(anyhow!("No target for todo delete"))?;
+    let _todo: Option<Todo> = DB.delete(("todo", id)).await?;
     Ok(())
 }
 
